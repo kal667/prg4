@@ -134,7 +134,7 @@ void access_cache(c, c_s, addr, access_type)
 			update_state(c.id, MODIFIED, INVALID, addr_tag, index);
 			update_state(c.id, SHARED, INVALID, addr_tag, index);
 			update_state(c.id, EXCLUSIVE, INVALID, addr_tag, index);
-			temp->state = EXCLUSIVE;
+			temp->state = MODIFIED;
 		}
 		c.LRU_head[index] = temp;
         c.LRU_tail[index] = temp;
@@ -174,7 +174,6 @@ void access_cache(c, c_s, addr, access_type)
 			}
 			//We've reached the tail
 			if (temp->LRU_next == NULL) {
-				c_s.misses += 1;
 				break;
 			}
 			temp = temp->LRU_next;
@@ -182,13 +181,72 @@ void access_cache(c, c_s, addr, access_type)
 
 		//Cache miss
 		if (hit_flag == FALSE) {
+			c_s.misses += 1;
+			c_s.broadcasts += 1;
+			c_s.demand_fetches += words_per_block;
 			//Insert cache line if one is free
 			if (c.set_contents[index] < c.associativity) {
 				temp = (Pcache_line *)malloc(sizeof(cache_line));
                 temp->tag = addr_tag;
+                //Remote read miss
+                if (access_type == TRACE_LOAD) {
+		             //Change modified/exclusive to shared
+					flag1 = update_state(c.id, MODIFIED, SHARED, addr_tag, index);
+					flag2 = update_state(c.id, EXCLUSIVE, SHARED, addr_tag, index);
+					flag3 = update_state(c.id, SHARED, SHARED, addr_tag, index);
+					//data from cache
+					if (flag1 == TRUE || flag2 == TRUE || flag3 == TRUE) {
+						temp->state = SHARED;
+					}
+					//data from memory
+					else{
+						temp->state = EXCLUSIVE;
+					}
+                }
+                //Remote write miss
+				else if (access_type == TRACE_STORE) {
+					//Change shared/modified/exclusive to invalid
+					update_state(c.id, MODIFIED, INVALID, addr_tag, index);
+					update_state(c.id, SHARED, INVALID, addr_tag, index);
+					update_state(c.id, EXCLUSIVE, INVALID, addr_tag, index);
+					temp->state = MODIFIED;
+				}
+				insert(&c.LRU_head[index], &c.LRU_tail[index], temp);
+				c.set_contents[index] += 1;
 			}
+			//Cache eviction
 			else if (c.set_contents[index] == c.associativity) {
 				c_s.replacements += 1;
+				if (temp->state == MODIFIED) {
+					c_s.copies_back += 1;
+				}
+				delete(&c.LRU_head[index], &c.LRU_tail[index], temp);
+				temp = (Pcache_line *)malloc(sizeof(cache_line));
+                temp->tag = addr_tag;
+                //Remote read miss
+                if (access_type == TRACE_LOAD) {
+		             //Change modified/exclusive to shared
+					flag1 = update_state(c.id, MODIFIED, SHARED, addr_tag, index);
+					flag2 = update_state(c.id, EXCLUSIVE, SHARED, addr_tag, index);
+					flag3 = update_state(c.id, SHARED, SHARED, addr_tag, index);
+					//data from cache
+					if (flag1 == TRUE || flag2 == TRUE || flag3 == TRUE) {
+						temp->state = SHARED;
+					}
+					//data from memory
+					else{
+						temp->state = EXCLUSIVE;
+					}
+                }
+                //Remote write miss
+				else if (access_type == TRACE_STORE) {
+					//Change shared/modified/exclusive to invalid
+					update_state(c.id, MODIFIED, INVALID, addr_tag, index);
+					update_state(c.id, SHARED, INVALID, addr_tag, index);
+					update_state(c.id, EXCLUSIVE, INVALID, addr_tag, index);
+					temp->state = MODIFIED;
+				}
+				insert(&c.LRU_head[index], &c.LRU_tail[index], temp);
 			}
 		}
 	}

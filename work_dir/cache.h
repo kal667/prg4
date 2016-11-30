@@ -64,6 +64,10 @@ void insert();
 void dump_settings();
 void print_stats();
 
+//Added
+int update_state();
+void access_cache();
+
 
 /* macros */
 #define LOG2(x) ((int)( log((double)(x)) / log(2) ))
