@@ -227,7 +227,7 @@ void access_cache(c, addr, access_type)
 			else if (c.set_contents[index] == c.associativity) {
 				mesi_cache_stat[c.id].replacements += 1;
 				if (temp->state == MODIFIED) {
-					mesi_cache_stat[c.id].copies_back += 1;
+					mesi_cache_stat[c.id].copies_back += words_per_block;
 				}
 				delete(&c.LRU_head[index], &c.LRU_tail[index], temp);
 				temp = (Pcache_line *)malloc(sizeof(cache_line));
@@ -280,6 +280,9 @@ int update_state(id, old_state, new_state, addr_tag, index)
 					if (temp->state == old_state) {
 						temp->state = new_state;
 						from_cache = TRUE;
+						if (old_state == MODIFIED && new_state == SHARED) {
+							mesi_cache_stat[i].copies_back += words_per_block;
+						}
 						break;
 					}
 				}
@@ -299,6 +302,9 @@ int update_state(id, old_state, new_state, addr_tag, index)
 					if (temp->state == old_state) {
 						temp->state = new_state;
 						from_cache = TRUE;
+						if (old_state == MODIFIED && new_state == SHARED) {
+							mesi_cache_stat[i].copies_back += words_per_block;
+						}
 						break;
 					}
 				}
