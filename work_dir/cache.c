@@ -58,7 +58,14 @@ void init_cache()
 		mesi_cache[i].associativity = cache_assoc;
 		mesi_cache[i].n_sets = cache_usize/cache_block_size/cache_assoc;
 		mesi_cache[i].index_mask = (mesi_cache[i].n_sets-1) << LOG2(cache_block_size);
-		mesi_cache[i].index_mask_offset = LOG2(cache_block_size);  
+		mesi_cache[i].index_mask_offset = LOG2(cache_block_size);
+
+		mesi_cache_stat[i].accesses = 0;
+		mesi_cache_stat[i].misses = 0;
+		mesi_cache_stat[i].replacements = 0;
+		mesi_cache_stat[i].demand_fetches = 0;
+		mesi_cache_stat[i].copies_back = 0;
+		mesi_cache_stat[i].broadcasts = 0;
 		
 		//allocate the array of cache line pointers
 		mesi_cache[i].LRU_head = (Pcache_line *)malloc(sizeof(Pcache_line)*mesi_cache[i].n_sets);
@@ -80,7 +87,6 @@ void perform_access(addr, access_type, pid)
 	unsigned addr, access_type, pid;
 {
   /* handle accesses to the mesi caches */
-	//printf("perform access\n");
 	access_cache(mesi_cache[pid], addr, access_type);
 }
 /************************************************************/
@@ -91,7 +97,6 @@ void access_cache(c, addr, access_type)
   unsigned addr, access_type;
 {
 	/*Function to access cache*/
-	//printf("access cache\n");
 
 	unsigned index = (addr & c.index_mask) >> c.index_mask_offset;
 	unsigned addr_tag = addr >> (c.index_mask_offset + LOG2(c.n_sets));
@@ -104,13 +109,10 @@ void access_cache(c, addr, access_type)
 	Pcache_line temp;
 
 	//Cache access stat
-	//printf("accesses %d\n", mesi_cache_stat[c.id].accesses);
 	mesi_cache_stat[c.id].accesses += 1; 
-	//printf("accesses %d\n", mesi_cache_stat[c.id].accesses);
 
 	//Compulsory miss
 	if (c.LRU_head[index] == NULL){
-		//printf("Compulsory miss\n");
 		mesi_cache_stat[c.id].misses += 1;
 		mesi_cache_stat[c.id].broadcasts += 1;
 		mesi_cache_stat[c.id].demand_fetches += words_per_block;
@@ -168,6 +170,7 @@ void access_cache(c, addr, access_type)
 					//State transition to invalid
 					if (temp->state == SHARED) {
 						update_state(c.id, SHARED, INVALID, addr_tag, index);
+						mesi_cache_stat[c.id].broadcasts += 1;
 					}
 					//Otherwise this core has the only copy
 					temp->state = MODIFIED;
