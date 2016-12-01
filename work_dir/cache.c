@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <math.h>
+#include <stdlib.h>
 
 #include "cache.h"
 #include "main.h"
@@ -70,25 +71,27 @@ void init_cache()
 			mesi_cache[i].LRU_tail[j] = NULL;
 			mesi_cache[i].set_contents[j] = 0;
 		}
+	}
 }
 /************************************************************/
 
 /************************************************************/
 void perform_access(addr, access_type, pid)
-	 unsigned addr, access_type, pid;
+	unsigned addr, access_type, pid;
 {
   /* handle accesses to the mesi caches */
-	access_cache(mesi_cache[pid], cache_stat[pid], addr, access_type);
+	//printf("perform access\n");
+	access_cache(mesi_cache[pid], addr, access_type);
 }
 /************************************************************/
 
 /************************************************************/
-void access_cache(c, c_s, addr, access_type)
+void access_cache(c, addr, access_type)
   cache c;
-  cache_stat c_s;
   unsigned addr, access_type;
 {
 	/*Function to access cache*/
+	//printf("access cache\n");
 
 	unsigned index = (addr & c.index_mask) >> c.index_mask_offset;
 	unsigned addr_tag = addr >> (c.index_mask_offset + LOG2(c.n_sets));
@@ -101,13 +104,16 @@ void access_cache(c, c_s, addr, access_type)
 	Pcache_line temp;
 
 	//Cache access stat
-	c_s.accesses += 1; 
+	//printf("accesses %d\n", mesi_cache_stat[c.id].accesses);
+	mesi_cache_stat[c.id].accesses += 1; 
+	//printf("accesses %d\n", mesi_cache_stat[c.id].accesses);
 
 	//Compulsory miss
 	if (c.LRU_head[index] == NULL){
-		c_s.misses += 1;
-		c_s.broadcasts += 1;
-		c_s.demand_fetches += words_per_block;
+		//printf("Compulsory miss\n");
+		mesi_cache_stat[c.id].misses += 1;
+		mesi_cache_stat[c.id].broadcasts += 1;
+		mesi_cache_stat[c.id].demand_fetches += words_per_block;
 		temp = (Pcache_line *)malloc(sizeof(cache_line));
         temp->tag = addr_tag;
         temp->LRU_prev = NULL;
@@ -146,7 +152,7 @@ void access_cache(c, c_s, addr, access_type)
 		temp = c.LRU_head[index];
 		for (i = 0; i < c.set_contents[index]; i++) {
 			if (temp->tag == addr_tag) {
-				//Load state condition
+				//Read hit
 				if (access_type == TRACE_LOAD && temp->state != INVALID) {
 					hit_flag = TRUE;
 					//Insert cache line at head
@@ -156,7 +162,7 @@ void access_cache(c, c_s, addr, access_type)
 					}
 					break;
 				}
-				//Store state condition
+				//Write hit
 				else if (access_type == TRACE_STORE && temp->state != INVALID) {
 					hit_flag = TRUE;
 					//State transition to invalid
@@ -181,9 +187,9 @@ void access_cache(c, c_s, addr, access_type)
 
 		//Cache miss
 		if (hit_flag == FALSE) {
-			c_s.misses += 1;
-			c_s.broadcasts += 1;
-			c_s.demand_fetches += words_per_block;
+			mesi_cache_stat[c.id].misses += 1;
+			mesi_cache_stat[c.id].broadcasts += 1;
+			mesi_cache_stat[c.id].demand_fetches += words_per_block;
 			//Insert cache line if one is free
 			if (c.set_contents[index] < c.associativity) {
 				temp = (Pcache_line *)malloc(sizeof(cache_line));
@@ -216,9 +222,9 @@ void access_cache(c, c_s, addr, access_type)
 			}
 			//Cache eviction
 			else if (c.set_contents[index] == c.associativity) {
-				c_s.replacements += 1;
+				mesi_cache_stat[c.id].replacements += 1;
 				if (temp->state == MODIFIED) {
-					c_s.copies_back += 1;
+					mesi_cache_stat[c.id].copies_back += 1;
 				}
 				delete(&c.LRU_head[index], &c.LRU_tail[index], temp);
 				temp = (Pcache_line *)malloc(sizeof(cache_line));
@@ -271,6 +277,7 @@ int update_state(id, old_state, new_state, addr_tag, index)
 					if (temp->state == old_state) {
 						temp->state = new_state;
 						from_cache = TRUE;
+						break;
 					}
 				}
 				//we've reached the tail
@@ -289,6 +296,7 @@ int update_state(id, old_state, new_state, addr_tag, index)
 					if (temp->state == old_state) {
 						temp->state = new_state;
 						from_cache = TRUE;
+						break;
 					}
 				}
 				//we've reached the tail
@@ -308,7 +316,7 @@ void flush()
 {
   /* flush the mesi caches */
 	int i, j;
-	for (i = 0; i < num_core; i++)
+	for (i = 0; i < num_core; i++) {
 		for(j = 0; j < mesi_cache[i].n_sets; j++) {
 			Pcache_line flush_line;
 			if(mesi_cache[i].LRU_head[j] != NULL) {
