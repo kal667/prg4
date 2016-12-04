@@ -50,9 +50,11 @@ void init_cache()
 {
   /* initialize the cache, and cache statistics data structures */
 
+	//printf("Init cache\n");
 	int i;
 	//unified cache for each core
 	for(i = 0; i < num_core; i++) {
+		//printf("Init core %d\n", i);
 		mesi_cache[i].id = i;
 		mesi_cache[i].size = cache_usize / WORD_SIZE;    
 		mesi_cache[i].associativity = cache_assoc;
@@ -87,6 +89,10 @@ void perform_access(addr, access_type, pid)
 	unsigned addr, access_type, pid;
 {
   /* handle accesses to the mesi caches */
+	//printf("Perform access\n");
+	//Cache access stat
+	mesi_cache_stat[pid].accesses += 1; 
+	
 	access_cache(mesi_cache[pid], addr, access_type);
 }
 /************************************************************/
@@ -107,12 +113,20 @@ void access_cache(c, addr, access_type)
 	int flag3 = FALSE;
 	int hit_flag = FALSE;
 	Pcache_line temp;
+/*
+	printf("\n");
+	printf("In perform access\n");
+	printf("core (%d)\n", c.id);
+    printf("access type (%u)\n", access_type);
+    printf("address (0x%x)\n", addr);
+    printf("index (%d) of (%d)\n", index, c.n_sets);
+    printf("addr_tag (0x%x)\n", addr_tag);
+*/
 
-	//Cache access stat
-	mesi_cache_stat[c.id].accesses += 1; 
 
 	//Compulsory miss
 	if (c.LRU_head[index] == NULL){
+		//printf("Compulsory miss\n");
 		mesi_cache_stat[c.id].misses += 1;
 		mesi_cache_stat[c.id].broadcasts += 1;
 		mesi_cache_stat[c.id].demand_fetches += words_per_block;
@@ -120,7 +134,7 @@ void access_cache(c, addr, access_type)
         temp->tag = addr_tag;
         temp->LRU_prev = NULL;
         temp->LRU_next = NULL;
-		//Remote read miss
+		//Read miss
 		if (access_type == TRACE_LOAD) {
 			//Change modified/exclusive to shared
 			flag1 = update_state(c.id, MODIFIED, SHARED, addr_tag, index);
@@ -136,7 +150,7 @@ void access_cache(c, addr, access_type)
 			}
 
 		}
-		//Remote write miss
+		//Write miss
 		else if (access_type == TRACE_STORE) {
 			//Change shared/modified/exclusive to invalid
 			update_state(c.id, MODIFIED, INVALID, addr_tag, index);
@@ -147,25 +161,37 @@ void access_cache(c, addr, access_type)
 		c.LRU_head[index] = temp;
         c.LRU_tail[index] = temp;
         c.set_contents[index] += 1;
+        return;
 	}
 
 	//Else, check cache set
 	else{
 		temp = c.LRU_head[index];
+
+		//printf("Print cache:\n");
+		//print_cache(c, index);
+
 		for (i = 0; i < c.set_contents[index]; i++) {
 			if (temp->tag == addr_tag) {
+				//printf("Cache match\n");
+				//printf("temp tag (0x%x)\n", temp->tag);
+				//printf("temp state (%d)\n", temp->state);
+
 				//Read hit
 				if (access_type == TRACE_LOAD && temp->state != INVALID) {
+					//printf("Cache read hit\n");
 					hit_flag = TRUE;
 					//Insert cache line at head
 					if (c.set_contents[index] > 1){
+						//printf("Insert\n");
 						delete(&c.LRU_head[index], &c.LRU_tail[index], temp);
 						insert(&c.LRU_head[index], &c.LRU_tail[index], temp);
 					}
-					break;
+					return;
 				}
 				//Write hit
 				else if (access_type == TRACE_STORE && temp->state != INVALID) {
+					//printf("Cache write hit\n");
 					hit_flag = TRUE;
 					//State transition to invalid
 					if (temp->state == SHARED) {
@@ -175,11 +201,13 @@ void access_cache(c, addr, access_type)
 					//Otherwise this core has the only copy
 					temp->state = MODIFIED;
 					if (c.set_contents[index] > 1){
+						//printf("Insert\n");
 						delete(&c.LRU_head[index], &c.LRU_tail[index], temp);
 						insert(&c.LRU_head[index], &c.LRU_tail[index], temp);
 					}
-					break;
+					return;
 				}
+				else break;
 			}
 			//We've reached the tail
 			if (temp->LRU_next == NULL) {
@@ -190,19 +218,22 @@ void access_cache(c, addr, access_type)
 
 		//Cache miss
 		if (hit_flag == FALSE) {
+			//printf("Cache miss\n");
+			//printf("Set contents (%d)\n", c.set_contents[index]);
 			mesi_cache_stat[c.id].misses += 1;
 			mesi_cache_stat[c.id].broadcasts += 1;
 			mesi_cache_stat[c.id].demand_fetches += words_per_block;
 			//Insert cache line if one is free
 			if (c.set_contents[index] < c.associativity) {
+				//printf("Free cache line\n");
 				temp = (Pcache_line *)malloc(sizeof(cache_line));
                 temp->tag = addr_tag;
                 //Remote read miss
                 if (access_type == TRACE_LOAD) {
 		             //Change modified/exclusive to shared
-					flag1 = update_state(c.id, MODIFIED, SHARED, addr_tag, index);
-					flag2 = update_state(c.id, EXCLUSIVE, SHARED, addr_tag, index);
-					flag3 = update_state(c.id, SHARED, SHARED, addr_tag, index);
+					flag1 = update_state(c.id, SHARED, SHARED, addr_tag, index);
+					flag2 = update_state(c.id, MODIFIED, SHARED, addr_tag, index);
+					flag3 = update_state(c.id, EXCLUSIVE, SHARED, addr_tag, index);
 					//data from cache
 					if (flag1 == TRUE || flag2 == TRUE || flag3 == TRUE) {
 						temp->state = SHARED;
@@ -222,22 +253,25 @@ void access_cache(c, addr, access_type)
 				}
 				insert(&c.LRU_head[index], &c.LRU_tail[index], temp);
 				c.set_contents[index] += 1;
+				return;
 			}
 			//Cache eviction
 			else if (c.set_contents[index] == c.associativity) {
+				//printf("Cache eviction\n");
 				mesi_cache_stat[c.id].replacements += 1;
-				if (temp->state == MODIFIED) {
+				if (c.LRU_tail[index]->state == MODIFIED) {
 					mesi_cache_stat[c.id].copies_back += words_per_block;
 				}
-				delete(&c.LRU_head[index], &c.LRU_tail[index], temp);
+				//delete(&c.LRU_head[index], &c.LRU_tail[index], c.LRU_tail[index]);
+				evict(c, index);
 				temp = (Pcache_line *)malloc(sizeof(cache_line));
                 temp->tag = addr_tag;
                 //Remote read miss
                 if (access_type == TRACE_LOAD) {
 		             //Change modified/exclusive to shared
-					flag1 = update_state(c.id, MODIFIED, SHARED, addr_tag, index);
-					flag2 = update_state(c.id, EXCLUSIVE, SHARED, addr_tag, index);
-					flag3 = update_state(c.id, SHARED, SHARED, addr_tag, index);
+					flag1 = update_state(c.id, SHARED, SHARED, addr_tag, index);
+					flag2 = update_state(c.id, MODIFIED, SHARED, addr_tag, index);
+					flag3 = update_state(c.id, EXCLUSIVE, SHARED, addr_tag, index);
 					//data from cache
 					if (flag1 == TRUE || flag2 == TRUE || flag3 == TRUE) {
 						temp->state = SHARED;
@@ -271,14 +305,14 @@ int update_state(id, old_state, new_state, addr_tag, index)
 
 	int i, j;
 	int from_cache = FALSE;
-	Pcache_line temp;
+	Pcache_line update;
 	for (i = 0; i < id; i ++) {
 		if (mesi_cache[i].LRU_head[index] != NULL) {
-			temp = mesi_cache[i].LRU_head[index];
+			update = mesi_cache[i].LRU_head[index];
 			for (j = 0; j < mesi_cache[i].set_contents[index]; j++) {
-				if (temp->tag == addr_tag) {
-					if (temp->state == old_state) {
-						temp->state = new_state;
+				if (update->tag == addr_tag) {
+					if (update->state == old_state) {
+						update->state = new_state;
 						from_cache = TRUE;
 						if (old_state == MODIFIED && new_state == SHARED) {
 							mesi_cache_stat[i].copies_back += words_per_block;
@@ -287,20 +321,20 @@ int update_state(id, old_state, new_state, addr_tag, index)
 					}
 				}
 				//we've reached the tail
-	            if (temp->LRU_next == NULL) {
+	            if (update->LRU_next == NULL) {
 	                break;
 	            }
-	            temp = temp->LRU_next;
+	            update = update->LRU_next;
 			}
 		}
 	}
 	for (i = id + 1; i < num_core; i ++) {
 		if (mesi_cache[i].LRU_head[index] != NULL) {
-			temp = mesi_cache[i].LRU_head[index];
+			update = mesi_cache[i].LRU_head[index];
 			for (j = 0; j < mesi_cache[i].set_contents[index]; j++) {
-				if (temp->tag == addr_tag) {
-					if (temp->state == old_state) {
-						temp->state = new_state;
+				if (update->tag == addr_tag) {
+					if (update->state == old_state) {
+						update->state = new_state;
 						from_cache = TRUE;
 						if (old_state == MODIFIED && new_state == SHARED) {
 							mesi_cache_stat[i].copies_back += words_per_block;
@@ -309,10 +343,10 @@ int update_state(id, old_state, new_state, addr_tag, index)
 					}
 				}
 				//we've reached the tail
-	            if (temp->LRU_next == NULL) {
+	            if (update->LRU_next == NULL) {
 	                break;
 	            }
-	            temp = temp->LRU_next;
+	            update = update->LRU_next;
 			}
 		}
 	}
@@ -422,3 +456,46 @@ void print_stats()
   printf("  copies back (words):  %d\n", copies_back);
 }
 /************************************************************/
+/************************************************************/
+void print_cache(c, index) 
+cache c;
+unsigned index;
+{
+	int i;
+	Pcache_line line;
+	line = c.LRU_head[index];
+	for (i = 0; i < c.set_contents[index]; i++) {
+		printf("tag: (0x%x), state: (%d)\n", line->tag, line->state);
+		//we've reached the tail
+        if (line->LRU_next == NULL) {
+            break;
+        }
+        line = line->LRU_next;
+	}
+}
+/************************************************************/
+/************************************************************/
+void evict(c, index)
+cache c;
+unsigned index;
+{
+	/*This function evicts an INVALID block before it deletes a block from the tail*/
+
+	int i;
+	Pcache_line line;
+	line = c.LRU_tail[index];
+	//Search for an INVALID cache line to delete
+	for (i = 0; i < c.set_contents[index]; i++) {
+		if (line->state == INVALID) {
+			delete(&c.LRU_head[index], &c.LRU_tail[index], line);
+			return;
+		}
+		//we've reached the head
+        if (line->LRU_prev == NULL) {
+            break;
+        }
+        line = line->LRU_prev;
+	}
+	//If there is no INVALID then delete the tail
+	delete(&c.LRU_head[index], &c.LRU_tail[index], c.LRU_tail[index]);
+}

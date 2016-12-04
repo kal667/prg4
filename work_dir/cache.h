@@ -67,6 +67,8 @@ void print_stats();
 //Added
 int update_state();
 void access_cache();
+void print_cache();
+void evict();
 
 
 /* macros */

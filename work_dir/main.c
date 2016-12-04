@@ -91,12 +91,14 @@ void parse_args(argc, argv)
 void play_trace(inFile)
   FILE *inFile;
 {
+  //printf("Play trace\n");
+
   unsigned addr, data, access_type, pid;
   int num_inst;
 
   num_inst = 0;
   while(read_trace_element(inFile, &pid, &access_type, &addr)) {
-
+  	//printf("In while loop\n");
     switch (access_type) {
     case TRACE_LOAD:
     case TRACE_STORE:
