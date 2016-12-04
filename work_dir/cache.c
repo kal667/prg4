@@ -258,10 +258,7 @@ void access_cache(c, addr, access_type)
 			//Cache eviction
 			else if (c.set_contents[index] == c.associativity) {
 				//printf("Cache eviction\n");
-				mesi_cache_stat[c.id].replacements += 1;
-				if (c.LRU_tail[index]->state == MODIFIED) {
-					mesi_cache_stat[c.id].copies_back += words_per_block;
-				}
+
 				//delete(&c.LRU_head[index], &c.LRU_tail[index], c.LRU_tail[index]);
 				evict(c, index);
 				temp = (Pcache_line *)malloc(sizeof(cache_line));
@@ -497,5 +494,9 @@ unsigned index;
         line = line->LRU_prev;
 	}
 	//If there is no INVALID then delete the tail
+	mesi_cache_stat[c.id].replacements += 1;
+	if (c.LRU_tail[index]->state == MODIFIED) {
+		mesi_cache_stat[c.id].copies_back += words_per_block;
+	}
 	delete(&c.LRU_head[index], &c.LRU_tail[index], c.LRU_tail[index]);
 }
